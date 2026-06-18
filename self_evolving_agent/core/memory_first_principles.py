@@ -49,9 +49,15 @@ class MemoryItem:
         第一性原理：保留分数 = 信息价值 * 时效衰减 + 访问频率奖励
         """
         age_sec = time.time() - self.created_at
-        time_decay = math.exp(-age_sec / 3600.0)  # 1小时衰减常数
+        # 阶段104修复：防止时钟偏移导致 OverflowError
+        if age_sec < 0:
+            age_sec = 0.0
+        try:
+            time_decay = math.exp(-age_sec / 3600.0)  # 1小时衰减常数
+        except OverflowError:
+            time_decay = 0.0
 
-        access_bonus = min(1.0, self.access_count / 10.0)
+        access_bonus = min(1.0, max(0.0, self.access_count / 10.0))
 
         return self.information_value * time_decay + access_bonus * 0.2
 
@@ -145,6 +151,20 @@ class MemoryFirstPrinciplesEngine:
 
         第一性原理：只有高价值信息才值得存储
         """
+        with self._lock:
+            # 阶段106修复：如果key已存在，直接覆盖更新（不检查信息价值）
+            if item_id in self._items:
+                value = self.evaluate_information_value(content, context)
+                item = MemoryItem(
+                    item_id=item_id,
+                    content=content,
+                    information_value=value,
+                    priority=self._items[item_id].priority,  # 保留原优先级
+                )
+                self._items[item_id] = item
+                self._stored_count += 1
+                return item
+
         value = self.evaluate_information_value(content, context)
 
         if value < self._retention_threshold:
@@ -243,13 +263,15 @@ class MemoryFirstPrinciplesEngine:
     def get_stats(self) -> Dict[str, Any]:
         """获取统计"""
         with self._lock:
+            # 阶段104修复：capacity=0 时防止 ZeroDivisionError
+            utilization = len(self._items) / self._capacity if self._capacity > 0 else 0.0
             return {
                 "engine_id": self.engine_id,
                 "items_count": len(self._items),
                 "capacity": self._capacity,
                 "stored_count": self._stored_count,
                 "forgotten_count": self._forgotten_count,
-                "utilization": len(self._items) / self._capacity,
+                "utilization": utilization,
                 "avg_information_value": sum(i.information_value for i in self._items.values()) / len(self._items) if self._items else 0,
             }
 

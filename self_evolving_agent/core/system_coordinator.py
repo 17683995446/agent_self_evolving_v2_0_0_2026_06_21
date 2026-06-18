@@ -201,6 +201,7 @@ class SystemCoordinator:
     def run_cycle(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """运行完整协调周期"""
         with self._lock:
+            self._cycle_count += 1
             return self._engine.run_integration_cycle(context or {})
 
     def get_status(self) -> Dict[str, Any]:

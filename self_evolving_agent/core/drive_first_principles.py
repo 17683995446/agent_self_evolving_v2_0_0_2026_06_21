@@ -176,8 +176,12 @@ class DriveFirstPrinciplesEngine:
 
         第一性原理：有缺口就需要行动
         """
-        gaps = self.compute_gaps()
-        return any(g.gap_magnitude > 0.01 for g in gaps)
+        # 阶段104修复：不调用 compute_gaps（有副作用），直接检查当前状态
+        with self._lock:
+            safe_gap = abs(self._target_safe - self._state.safe_level)
+            gain_gap = abs(self._target_gain - self._state.gain_level)
+            eff_gap = abs(self._target_eff - self._state.eff_level)
+            return safe_gap > 0.01 or gain_gap > 0.01 or eff_gap > 0.01
 
     def trace_action_to_gap(self, action_description: str) -> Optional[DriveGap]:
         """
@@ -193,15 +197,22 @@ class DriveFirstPrinciplesEngine:
         """获取统计"""
         with self._lock:
             gaps = list(self._gaps.values())
+            dominant = max(self._gaps.values(), key=lambda g: g.urgency) if self._gaps else None
+            # 阶段104修复：直接计算 action_required，不调用有副作用的方法
+            safe_gap = abs(self._target_safe - self._state.safe_level)
+            gain_gap = abs(self._target_gain - self._state.gain_level)
+            eff_gap = abs(self._target_eff - self._state.eff_level)
+            action_required = safe_gap > 0.01 or gain_gap > 0.01 or eff_gap > 0.01
+            total_pressure = sum(g.gap_magnitude * g.urgency for g in gaps) if gaps else 0.0
             return {
                 "engine_id": self.engine_id,
                 "state": self._state.to_dict(),
                 "active_gaps": len(gaps),
                 "total_gaps_history": len(self._gap_history),
                 "cycle_count": self._cycle_count,
-                "dominant_drive": self.get_dominant_gap().drive_type.value if gaps else None,
-                "total_pressure": self.get_total_drive_pressure(),
-                "action_required": self.is_action_required(),
+                "dominant_drive": dominant.drive_type.value if dominant else None,
+                "total_pressure": total_pressure,
+                "action_required": action_required,
             }
 
     def clear_history(self) -> None:

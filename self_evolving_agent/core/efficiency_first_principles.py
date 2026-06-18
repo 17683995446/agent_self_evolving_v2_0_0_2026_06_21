@@ -114,13 +114,21 @@ class EfficiencyFirstPrinciplesEngine:
         )
 
         with self._lock:
-            self._usages[usage_id] = usage
+            # 阶段104修复：防止重复 usage_id 导致预算重复计算
+            if usage_id in self._usages:
+                # 已存在，更新而非重复累加
+                old_usage = self._usages[usage_id]
+                delta = amount - old_usage.amount
+                self._usages[usage_id] = usage
+                for budget in self._budgets.values():
+                    if budget.resource_type == resource_type:
+                        budget.consumed += delta
+            else:
+                self._usages[usage_id] = usage
+                for budget in self._budgets.values():
+                    if budget.resource_type == resource_type:
+                        budget.consumed += amount
             self._cycle_count += 1
-
-            # 更新预算
-            for budget in self._budgets.values():
-                if budget.resource_type == resource_type:
-                    budget.consumed += amount
 
         return usage
 

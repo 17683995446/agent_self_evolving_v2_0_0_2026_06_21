@@ -120,6 +120,9 @@ class MetacognitionFirstPrinciplesEngine:
 
         第一性原理：知道任务多难，才知道该用什么策略
         """
+        # 阶段104修复：None 或非字典输入防御
+        if not isinstance(task_features, dict):
+            task_features = {}
         complexity = task_features.get("complexity", 0.5)
         required_capacity = task_features.get("required_capacity", 0.5)
 
@@ -159,6 +162,9 @@ class MetacognitionFirstPrinciplesEngine:
 
         第一性原理：策略必须匹配当前认知状态
         """
+        # 阶段104修复：None 或非字典输入防御
+        if not isinstance(task_features, dict):
+            task_features = {}
         with self._lock:
             state = self._current_state
 

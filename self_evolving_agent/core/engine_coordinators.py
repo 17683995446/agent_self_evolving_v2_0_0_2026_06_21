@@ -164,6 +164,9 @@ class MotivationCoordinator:
 
     def update_evolution(self, outcome: Dict[str, Any]) -> Any:
         """根据结果更新进化目标，返回漂移检测结果"""
+        # 防御性校验：None 或非字典输入
+        if not isinstance(outcome, dict):
+            outcome = {}
         if "safe_improvement" in outcome:
             self.evolution.update_progress(GoalType.SAFE, outcome["safe_improvement"])
         if "gain_improvement" in outcome:
@@ -328,6 +331,9 @@ class ExplorationCoordinator:
 
     def record_outcome(self, outcome: Dict[str, Any]) -> None:
         """记录结果到因果引擎"""
+        # 防御性校验：None 输入（causal.record_observation 内部也会校验）
+        if outcome is None:
+            outcome = {}
         self.causal.record_observation(outcome)
 
     def get_stats(self) -> Dict[str, Any]:

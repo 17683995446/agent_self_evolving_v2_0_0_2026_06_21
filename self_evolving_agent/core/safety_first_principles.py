@@ -146,7 +146,16 @@ class SafetyFirstPrinciplesEngine:
 
         第一性原理：操作必须不破坏系统稳定性
         """
-        required_resources = operation.get("required_resources", {})
+        # 防御性校验：None 或非字典输入
+        if not isinstance(operation, dict):
+            return {
+                "allowed": False,
+                "risk_score": 1.0,
+                "violations": [{"error": "invalid_operation", "reason": f"expected dict, got {type(operation).__name__}"}],
+            }
+        required_resources = operation.get("required_resources", {}) or {}
+        if not isinstance(required_resources, dict):
+            required_resources = {}
         risk_score = 0.0
         violations = []
 

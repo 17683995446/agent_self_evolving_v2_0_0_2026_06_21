@@ -127,12 +127,20 @@ class PredictiveCodingEngine:
 
         第一性原理：所有行为始于预测
         """
+        # 阶段107修复：module_id 必须是可哈希的，否则转为字符串
+        if not isinstance(module_id, (str, int, float, tuple, type(None))):
+            module_id = str(module_id)
+        if module_id is None:
+            module_id = "default"
         with self._lock:
             predictor = self._predictors.get(module_id)
         if predictor is None:
             return None
 
         prediction = predictor(current_state)
+        # 阶段104修复：predictor 可能返回 None
+        if prediction is None:
+            return None
         with self._lock:
             self._predictions[prediction.prediction_id] = prediction
         return prediction
@@ -185,12 +193,20 @@ class PredictiveCodingEngine:
 
         第一性原理：修正的方向是减小未来误差
         """
+        # 阶段107修复：module_id 必须是可哈希的
+        if not isinstance(module_id, (str, int, float, tuple, type(None))):
+            module_id = str(module_id)
+        if module_id is None:
+            module_id = "default"
         with self._lock:
             corrector = self._correctors.get(module_id)
         if corrector is None:
             return None
 
         correction = corrector(error)
+        # 阶段104修复：corrector 可能返回 None
+        if correction is None:
+            return None
         with self._lock:
             self._corrections[correction.correction_id] = correction
             self._cycle_count += 1

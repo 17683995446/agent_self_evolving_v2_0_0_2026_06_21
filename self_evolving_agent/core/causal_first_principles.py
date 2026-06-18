@@ -95,6 +95,9 @@ class CausalFirstPrinciplesEngine:
 
     def record_observation(self, variables: Dict[str, Any]) -> None:
         """记录观测"""
+        # 防御性校验：None 或非字典输入
+        if not isinstance(variables, dict):
+            variables = {}
         with self._lock:
             self._observations.append({
                 "timestamp": time.time(),

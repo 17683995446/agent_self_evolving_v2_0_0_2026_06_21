@@ -111,6 +111,21 @@ class FreeWillFirstPrinciplesEngine:
         if not valid_options:
             valid_options = choice_set.options  # 无有效选项时放宽
 
+        # 防御性校验：空选项集
+        if not valid_options:
+            # 无可选选项时返回默认决策，避免 IndexError
+            decision = Decision(
+                decision_id=f"dec_{int(time.time() * 1000)}_{self._cycle_count}",
+                chosen_action="noop",
+                alternatives=[],
+                reasons={"empty_choice_set": True},
+                source=DecisionSource.INTERNAL,
+            )
+            with self._lock:
+                self._decisions.append(decision)
+                self._cycle_count += 1
+            return decision
+
         # 评估每个选项
         scores: Dict[str, float] = {}
         for opt in valid_options:

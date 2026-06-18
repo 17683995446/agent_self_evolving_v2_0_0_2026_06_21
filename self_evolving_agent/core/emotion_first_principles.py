@@ -103,6 +103,10 @@ class EmotionFirstPrinciplesEngine:
         # 根据事件特征推断情感
         emotion_changes: Dict[EmotionType, float] = {}
 
+        # 阶段104修复：钳制输入到 [0,1]，防止负值产生负情感强度
+        prediction_error = max(0.0, min(1.0, prediction_error or 0.0))
+        information_value = max(0.0, min(1.0, information_value or 0.0))
+
         if prediction_error > 0.5:
             emotion_changes[EmotionType.SURPRISE] = min(1.0, prediction_error)
             emotion_changes[EmotionType.CONFUSION] = min(1.0, prediction_error * 0.7)
@@ -120,12 +124,13 @@ class EmotionFirstPrinciplesEngine:
         with self._lock:
             for emotion, delta in emotion_changes.items():
                 current = self._state.emotions.get(emotion, 0.0)
-                self._state.emotions[emotion] = min(1.0, current + delta)
+                # 阶段104修复：钳制到 [0, 1]，防止负值
+                self._state.emotions[emotion] = max(0.0, min(1.0, current + delta))
 
             # 衰减其他情感
             for emotion in self._state.emotions:
                 if emotion not in emotion_changes:
-                    self._state.emotions[emotion] *= 0.9
+                    self._state.emotions[emotion] = max(0.0, self._state.emotions[emotion] * 0.9)
 
             self._state._update_dominant()
             self._state.timestamp = time.time()

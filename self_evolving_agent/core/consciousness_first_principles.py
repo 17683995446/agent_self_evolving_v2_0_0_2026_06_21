@@ -73,6 +73,9 @@ class ConsciousnessFirstPrinciplesEngine:
 
         第一性原理：只有足够显著的内容才能进入意识
         """
+        # 防御性校验：None 输入
+        if content is None:
+            return False
         with self._lock:
             # 如果工作空间已满，驱逐最低显著度的内容
             if len(self._workspace) >= self._capacity:

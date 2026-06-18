@@ -145,7 +145,7 @@ def status():
     return jsonify({
         "agent_running": _agent_running,
         "agent_initialized": _agent is not None,
-        "cycle_count": _agent._cycle_count if _agent else 0,
+        "cycle_count": (_coordinator._cycle_count if _coordinator else 0) or (_agent._cycle_count if _agent else 0),
         "timestamp": datetime.now().isoformat(),
     })
 
@@ -292,10 +292,17 @@ def set_goals():
         return jsonify({"error": "Agent未初始化"}), 400
 
     data = request.get_json() or {}
+    set_goals = {}
+    errors = []
     for goal_type, level in data.items():
-        _coordinator.set_goal(goal_type, float(level))
+        try:
+            level_float = float(level)
+            _coordinator.set_goal(goal_type, level_float)
+            set_goals[goal_type] = level_float
+        except (ValueError, TypeError) as e:
+            errors.append({"goal": goal_type, "error": str(e)})
 
-    return jsonify({"status": "goals_set", "goals": data})
+    return jsonify({"status": "goals_set", "goals": set_goals, "errors": errors})
 
 
 @app.route("/api/cycle", methods=["POST"])
@@ -544,7 +551,7 @@ def rag_search():
 def rag_docs():
     """列出知识库所有文档"""
     if _rag is None:
-        return jsonify({"error": "RAG服务未初始化"}), 400
+        return jsonify({"documents": [], "total": 0, "message": "RAG服务未初始化（需要配置LLM API Key）"})
 
     docs = _rag.vector_store.list_documents()
     return jsonify({"documents": docs, "total": len(docs)})
@@ -554,7 +561,7 @@ def rag_docs():
 def rag_clear():
     """清空知识库"""
     if _rag is None:
-        return jsonify({"error": "RAG服务未初始化"}), 400
+        return jsonify({"status": "noop", "message": "RAG服务未初始化"})
 
     _rag.vector_store.clear()
     return jsonify({"status": "cleared"})
@@ -564,7 +571,7 @@ def rag_clear():
 def rag_stats():
     """RAG服务统计"""
     if _rag is None:
-        return jsonify({"error": "RAG服务未初始化"}), 400
+        return jsonify({"initialized": False, "message": "RAG服务未初始化（需要配置LLM API Key）"})
 
     return jsonify(_rag.get_stats())
 
