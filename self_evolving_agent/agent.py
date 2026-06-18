@@ -1,357 +1,293 @@
 """
-自驱永续进化Agent系统 — 主Agent
+自驱永续进化Agent系统 — 主Agent（架构B统一入口）
 
-第一性原理：Agent是模块的协调者，不是控制者
-- 通过消息总线连接所有模块
-- 不直接调用模块方法，只发送消息
-- 每个模块独立运行，通过消息通信
+阶段96: 统一两套架构
+第一性原理：单一职责 + 依赖抽象
+- SelfEvolvingAgent 现在是 SystemCoordinator 的薄包装层
+- 不再直接依赖 modules/ 中的具体实现
+- 通过 SystemCoordinator 统一访问 15 个第一性原理引擎
+- 保留消息总线用于事件通知（向后兼容）
 """
 
-import time
 import threading
-from typing import Dict, Any, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional
 
-from .core.interfaces import BaseModule, AgentMessage, MessageType, MessagePriority
+from .core.interfaces import AgentMessage, MessagePriority, MessageType
 from .core.message_bus import LocalMessageBus
 from .core.config_manager import ConfigurationManager
-
-from .modules.predictor import MultiLayerPredictor, LinearPredictor, MovingAveragePredictor
-from .modules.drive_engine import UnifiedDriveEngine
-from .modules.memory import MemoryCoordinator
-from .modules.optimizer import OptimizationStrategy
-from .modules.evaluator import UnifiedEvaluator
-from .modules.task_system import TaskSystem
+from .core.system_coordinator import SystemCoordinator, create_coordinator
+from .core.llm_service import LLMService, create_llm_service
 
 
 class SelfEvolvingAgent:
     """
-    自驱永续进化Agent
+    自驱永续进化Agent（架构B统一入口）
 
-    核心循环：
-    1. 感知环境 -> 状态更新消息
-    2. 预测未来 -> 预测消息
-    3. 计算驱力 -> 驱力消息
-    4. 生成任务 -> 任务消息
-    5. 执行任务 -> 动作消息
-    6. 评估结果 -> 误差消息
-    7. 优化模型 -> 学习消息
+    通过 SystemCoordinator 协调 15 个第一性原理引擎：
+    预测编码、驱力、学习、探索、记忆、进化、安全、能效、
+    社交、创造、因果、元认知、情感、意识、自由意志
+
+    核心循环（声明式）：
+    1. observe(state)  -> 感知 + 预测 + 误差
+    2. act(action)     -> 决策 + 行动
+    3. reflect()       -> 元认知 + 反思
+    4. run_cycle()     -> 完整整合周期
     """
 
-    def __init__(self, agent_id: str = "self_evolving_agent"):
+    def __init__(
+        self,
+        agent_id: str = "self_evolving_agent",
+        llm_service: Optional[LLMService] = None,
+        use_message_bus: bool = True,
+    ):
         self.agent_id = agent_id
-        self._message_bus = LocalMessageBus(async_mode=True)
-        self._config = ConfigurationManager()
 
-        # 核心模块
-        self._predictor: Optional[MultiLayerPredictor] = None
-        self._drive_engine: Optional[UnifiedDriveEngine] = None
-        self._memory: Optional[MemoryCoordinator] = None
-        self._optimizer: Optional[OptimizationStrategy] = None
-        self._evaluator: Optional[UnifiedEvaluator] = None
-        self._task_system: Optional[TaskSystem] = None
+        # 架构B：统一协调器（持有 UnifiedFirstPrinciplesEngine）
+        self._coordinator = create_coordinator(
+            coordinator_id=agent_id,
+            llm_service=llm_service,
+        )
+
+        # 消息总线（用于事件通知，向后兼容架构A的订阅者）
+        self._message_bus = LocalMessageBus(async_mode=True) if use_message_bus else None
+        self._config = ConfigurationManager()
 
         # 运行状态
         self._running = False
         self._main_loop_thread: Optional[threading.Thread] = None
         self._cycle_count = 0
         self._cycle_interval = 1.0  # 秒
+        self._observers: List[Callable[[Dict[str, Any]], None]] = []
+
+    # ============================================================
+    # 属性访问（向后兼容）
+    # ============================================================
+
+    @property
+    def coordinator(self) -> SystemCoordinator:
+        """暴露底层协调器（供高级用户直接访问）"""
+        return self._coordinator
+
+    @property
+    def engine(self):
+        """暴露底层统一引擎（向后兼容架构A的属性访问）"""
+        return self._coordinator._engine
+
+    @property
+    def message_bus(self) -> Optional[LocalMessageBus]:
+        return self._message_bus
+
+    # ============================================================
+    # 初始化
+    # ============================================================
 
     def initialize(self, config: Dict[str, Any]) -> None:
         """
         初始化Agent
 
-        创建并配置所有模块
+        config 字段（全部可选）：
+        - cycle_interval: 主循环间隔（秒）
+        - goals: {"safe": 0.95, "gain": 0.8, "eff": 0.85}
+        - llm: LLM 配置（api_key, model, base_url）
         """
         self._config.update(config)
+        self._cycle_interval = config.get("cycle_interval", self._cycle_interval)
 
-        # 创建消息总线
-        self._message_bus.start()
+        # 启动消息总线（如果启用）
+        if self._message_bus:
+            self._message_bus.start()
 
-        # 创建预测器
-        self._predictor = MultiLayerPredictor("predictor")
-        self._predictor.add_layer("low", LinearPredictor("predictor_low", window_size=5))
-        self._predictor.add_layer("mid", MovingAveragePredictor("predictor_mid", window_size=20))
-        self._predictor.add_layer("high", MovingAveragePredictor("predictor_high", window_size=100))
-
-        # 创建驱力引擎
-        self._drive_engine = UnifiedDriveEngine("drive_engine")
-
-        # 创建记忆系统
-        self._memory = MemoryCoordinator("memory")
-
-        # 创建优化器
-        self._optimizer = OptimizationStrategy("optimizer")
-
-        # 创建评估器
-        self._evaluator = UnifiedEvaluator("evaluator")
-
-        # 创建任务系统
-        self._task_system = TaskSystem("task_system")
-
-        # 绑定消息总线
-        modules = [
-            self._predictor,
-            self._drive_engine,
-            self._memory,
-            self._optimizer,
-            self._evaluator,
-            self._task_system,
-        ]
-
-        for module in modules:
-            if module:
-                module.attach_message_bus(self._message_bus)
-                module.initialize(config.get(module.module_id, {}))
-
-        # 订阅消息
-        self._setup_subscriptions()
+        # 设置声明式目标
+        for goal_type, target_level in config.get("goals", {}).items():
+            self._coordinator.set_goal(goal_type, float(target_level))
 
     def _setup_subscriptions(self) -> None:
-        """设置消息订阅"""
-        # 预测器订阅状态更新
-        self._message_bus.subscribe(
-            "predictor",
-            [MessageType.STATE_UPDATE],
-            lambda msg: self._handle_predictor_message(msg)
-        )
-
-        # 驱力引擎订阅状态更新
-        self._message_bus.subscribe(
-            "drive_engine",
-            [MessageType.STATE_UPDATE],
-            lambda msg: self._handle_drive_message(msg)
-        )
-
-        # 任务系统订阅驱力信号
-        self._message_bus.subscribe(
-            "task_system",
-            [MessageType.DRIVE_SIGNAL],
-            lambda msg: self._handle_task_message(msg)
-        )
-
-        # 评估器订阅预测结果和状态更新
-        self._message_bus.subscribe(
-            "evaluator",
-            [MessageType.PREDICTION, MessageType.STATE_UPDATE],
-            lambda msg: self._handle_evaluator_message(msg)
-        )
-
-        # 优化器订阅误差信号
-        self._message_bus.subscribe(
-            "optimizer",
-            [MessageType.ERROR_SIGNAL],
-            lambda msg: self._handle_optimizer_message(msg)
-        )
-
-        # 记忆系统订阅所有消息
+        """设置消息订阅（向后兼容接口）"""
+        if not self._message_bus:
+            return
+        # 记忆系统订阅所有消息（保留架构A的事件流）
         self._message_bus.subscribe_all(
             "memory",
-            lambda msg: self._handle_memory_message(msg)
+            lambda msg: self._handle_memory_message(msg),
         )
-
-    def _handle_predictor_message(self, message: AgentMessage) -> None:
-        """处理预测器消息"""
-        response = self._predictor.handle_message(message)
-        if response:
-            self._message_bus.publish(response)
-
-    def _handle_drive_message(self, message: AgentMessage) -> None:
-        """处理驱力消息"""
-        response = self._drive_engine.handle_message(message)
-        if response:
-            self._message_bus.publish(response)
-
-    def _handle_task_message(self, message: AgentMessage) -> None:
-        """处理任务消息"""
-        response = self._task_system.handle_message(message)
-        if response:
-            self._message_bus.publish(response)
-            # 记录选中的任务
-            self._handle_task_selected(response)
-
-    def _handle_evaluator_message(self, message: AgentMessage) -> None:
-        """处理评估器消息"""
-        response = self._evaluator.handle_message(message)
-        if response:
-            self._message_bus.publish(response)
-
-    def _handle_optimizer_message(self, message: AgentMessage) -> None:
-        """处理优化器消息"""
-        response = self._optimizer.handle_message(message)
-        if response:
-            self._message_bus.publish(response)
 
     def _handle_memory_message(self, message: AgentMessage) -> None:
-        """处理记忆消息"""
-        # 存储所有消息到记忆
-        self._memory.store(
-            key=f"msg_{message.msg_id}",
-            data=message.to_dict(),
-            metadata={"type": message.msg_type.name, "source": message.source},
-        )
+        """处理记忆消息（向后兼容）"""
+        # 通过协调器的引擎存储到记忆系统
+        try:
+            self._coordinator._engine.memory.store(
+                key=f"msg_{message.msg_id}",
+                data=message.to_dict(),
+                context={"type": message.msg_type.name, "source": message.source},
+            )
+        except Exception:
+            pass
 
-    def _handle_task_selected(self, message: AgentMessage) -> None:
-        """处理任务选择"""
-        task = message.payload.get("selected_task", {})
-        print(f"[Agent] Selected task: {task.get('action')} ({task.get('task_id')})")
+    # ============================================================
+    # 声明式接口（委托给 SystemCoordinator）
+    # ============================================================
+
+    def set_goal(self, goal_type: str, target_level: float) -> None:
+        """设置目标（声明式）"""
+        self._coordinator.set_goal(goal_type, target_level)
+
+    def observe(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """观察环境状态"""
+        result = self._coordinator.observe(state)
+        self._publish_state_update(state)
+        return result
+
+    def act(self, action: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """执行行动"""
+        return self._coordinator.act(action, context)
+
+    def reflect(self) -> Dict[str, Any]:
+        """反思当前状态"""
+        return self._coordinator.reflect()
+
+    def run_cycle(self, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """运行完整协调周期"""
+        return self._coordinator.run_cycle(context or {})
+
+    def inject_state(self, state: Dict[str, Any]) -> None:
+        """手动注入状态（用于测试）"""
+        self.observe(state)
+
+    def register_observer(self, observer: Callable[[Dict[str, Any]], None]) -> None:
+        """注册状态观察者"""
+        self._observers.append(observer)
+        self._coordinator.register_observer(observer)
+
+    # ============================================================
+    # 生命周期
+    # ============================================================
 
     def start(self) -> None:
         """启动Agent"""
         self._running = True
+        self._coordinator.start()
+        self._setup_subscriptions()
 
-        # 启动所有模块
-        modules = [
-            self._predictor,
-            self._drive_engine,
-            self._memory,
-            self._optimizer,
-            self._evaluator,
-            self._task_system,
-        ]
-        for module in modules:
-            if module:
-                module.start()
-
-        # 启动主循环
         self._main_loop_thread = threading.Thread(
             target=self._main_loop,
             name="AgentMainLoop",
-            daemon=True
+            daemon=True,
         )
         self._main_loop_thread.start()
-
-        print(f"[Agent] {self.agent_id} started")
 
     def stop(self) -> None:
         """停止Agent"""
         self._running = False
-
         if self._main_loop_thread and self._main_loop_thread.is_alive():
             self._main_loop_thread.join(timeout=2.0)
-
-        # 停止所有模块
-        modules = [
-            self._predictor,
-            self._drive_engine,
-            self._memory,
-            self._optimizer,
-            self._evaluator,
-            self._task_system,
-        ]
-        for module in modules:
-            if module:
-                module.stop()
-
-        # 停止消息总线
-        self._message_bus.stop()
-
-        print(f"[Agent] {self.agent_id} stopped")
+        self._coordinator.stop()
+        if self._message_bus:
+            self._message_bus.stop()
 
     def _main_loop(self) -> None:
-        """主循环"""
+        """主循环：周期性感知环境"""
         while self._running:
             self._cycle_count += 1
-
-            # 模拟环境感知
             state = self._sense_environment()
+            try:
+                self.observe(state)
+            except Exception:
+                pass
+            time.sleep(self._cycle_interval)
 
-            # 发送状态更新消息
-            state_message = AgentMessage(
+    def _sense_environment(self) -> Dict[str, Any]:
+        """感知环境（模拟）"""
+        import math
+        import random
+
+        t = self._cycle_count * 0.1
+        base_value = math.sin(t) * 0.5 + 0.5
+        return {
+            "module_id": "env",
+            "predicted": {"value": base_value},
+            "actual": {"value": base_value + random.gauss(0, 0.05)},
+            "cycle": self._cycle_count,
+        }
+
+    def _publish_state_update(self, state: Dict[str, Any]) -> None:
+        """发布状态更新消息（向后兼容）"""
+        if not self._message_bus:
+            return
+        try:
+            message = AgentMessage(
                 msg_type=MessageType.STATE_UPDATE,
                 source="environment",
                 payload={"state": state, "cycle": self._cycle_count},
                 priority=MessagePriority.NORMAL,
             )
-            self._message_bus.publish(state_message)
+            self._message_bus.publish(message)
+        except Exception:
+            pass
 
-            time.sleep(self._cycle_interval)
-
-    def _sense_environment(self) -> Dict[str, Any]:
-        """
-        感知环境
-
-        简化实现：生成模拟状态
-        """
-        import random
-        import math
-
-        # 模拟周期性变化 + 噪声
-        t = self._cycle_count * 0.1
-        base_value = math.sin(t) * 0.5 + 0.5
-
-        return {
-            "value": base_value + random.gauss(0, 0.05),
-            "cpu_usage": random.uniform(0.2, 0.6),
-            "memory_usage": random.uniform(0.3, 0.7),
-            "task_completion_rate": random.uniform(0.7, 0.95),
-            "uncertainty": random.uniform(0.1, 0.4),
-            "cycle": self._cycle_count,
-        }
+    # ============================================================
+    # 状态查询
+    # ============================================================
 
     def get_state(self) -> Dict[str, Any]:
-        """获取Agent状态"""
+        """获取Agent状态（统一架构A/B的字段）"""
+        engine = self._coordinator._engine
+        # 优先使用协调器的周期计数（observe/act/run_cycle 都会递增）
+        cycle_count = max(self._cycle_count, self._coordinator._cycle_count)
         return {
             "agent_id": self.agent_id,
             "running": self._running,
-            "cycle_count": self._cycle_count,
-            "message_bus": self._message_bus.get_stats(),
+            "cycle_count": cycle_count,
+            "coordinator": self._coordinator.get_status(),
+            "message_bus": self._message_bus.get_stats() if self._message_bus else None,
+            # 向后兼容字段（架构A的调用者期望）
             "modules": {
-                "predictor": self._predictor.get_model_state() if self._predictor else None,
-                "drive_engine": self._drive_engine.get_state() if self._drive_engine else None,
-                "memory": self._memory.get_state() if self._memory else None,
-                "optimizer": self._optimizer.get_state() if self._optimizer else None,
-                "evaluator": self._evaluator.get_state() if self._evaluator else None,
-                "task_system": self._task_system.get_state() if self._task_system else None,
+                "predictor": engine.predictive_coding.get_stats() if engine else None,
+                "drive_engine": engine.drive.get_stats() if engine else None,
+                "memory": engine.memory.get_stats() if engine else None,
+                "optimizer": None,  # 已合并到 efficiency + learning
+                "evaluator": None,  # 已合并到 predictive_coding
+                "task_system": None,  # 已合并到 free_will
             },
         }
 
-    def inject_state(self, state: Dict[str, Any]) -> None:
-        """手动注入状态（用于测试）"""
-        message = AgentMessage(
-            msg_type=MessageType.STATE_UPDATE,
-            source="external",
-            payload={"state": state},
-            priority=MessagePriority.HIGH,
-        )
-        self._message_bus.publish(message)
 
-
-# ============================================================================
+# ============================================================
 # 快速启动函数
-# ============================================================================
+# ============================================================
 
-def create_default_agent() -> SelfEvolvingAgent:
-    """创建默认配置的Agent"""
-    agent = SelfEvolvingAgent()
+def create_default_agent(
+    llm_api_key: Optional[str] = None,
+    llm_model: str = "Qwen/Qwen2.5-7B-Instruct",
+) -> SelfEvolvingAgent:
+    """
+    创建默认配置的Agent
+
+    Args:
+        llm_api_key: 硅基流动 API Key（可选，启用LLM能力）
+        llm_model: LLM 模型名（默认 Qwen2.5-7B-Instruct，免费）
+    """
+    llm_service = None
+    if llm_api_key:
+        llm_service = create_llm_service(
+            api_key=llm_api_key,
+            model=llm_model,
+        )
+
+    agent = SelfEvolvingAgent(llm_service=llm_service)
 
     config = {
-        "predictor": {
-            "layer_weights": {"low": 0.5, "mid": 0.3, "high": 0.2},
-        },
-        "drive_engine": {
-            "safe": {"target_safety": 0.95, "anomaly_threshold": 2.0},
-            "gain": {"target_uncertainty": 0.1},
-            "eff": {"target_efficiency": 0.8},
-        },
-        "memory": {
-            "stm": {"capacity": 7},
-            "ltm": {"persist_path": None},
-        },
-        "optimizer": {
-            "micro": {"learning_rate": 0.01, "max_iterations": 100},
-            "structural": {"complexity_penalty": 0.1},
-        },
-        "evaluator": {
-            "error": {},
-            "feedback": {"error_threshold": 0.3},
-        },
-        "task_system": {
-            "exploration_rate": 0.1,
-            "factory": {},
-            "evaluator": {},
-            "selector": {},
+        "cycle_interval": 1.0,
+        "goals": {
+            "safe": 0.95,
+            "gain": 0.8,
+            "eff": 0.85,
         },
     }
-
     agent.initialize(config)
     return agent
+
+
+def create_default_agent_with_llm(api_key: str) -> SelfEvolvingAgent:
+    """创建带LLM能力的默认Agent（便捷函数）"""
+    return create_default_agent(llm_api_key=api_key)
