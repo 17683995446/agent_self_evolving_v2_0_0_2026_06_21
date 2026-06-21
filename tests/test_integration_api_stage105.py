@@ -38,7 +38,8 @@ class TestBasicAPI:
         assert resp.status_code == 200
         data = resp.get_json()
         assert "name" in data
-        assert "api_endpoints" in data
+        # 阶段160: api_endpoints 改为 endpoints（完整端点清单）
+        assert "endpoints" in data or "api_endpoints" in data
 
     def test_status(self, client):
         """状态接口"""

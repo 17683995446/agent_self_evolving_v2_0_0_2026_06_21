@@ -1,0 +1,163 @@
+# ============================================================
+# 阶段144: 项目打包配置 (PEP 517/518/621)
+# ============================================================
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "self-evolving-agent"
+version = "2.0.0"
+description = "基于第一性原理设计的自驱永续进化预测修正Agent系统"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "SelfEvolvingAgent Team"},
+]
+keywords = [
+    "agent",
+    "self-evolving",
+    "predictive-coding",
+    "first-principles",
+    "autonomous",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "numpy>=1.24.0",
+    "flask>=2.3.0",
+    "flask-cors>=4.0.0",
+    "gunicorn>=21.0.0",
+    "psutil>=5.9.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+]
+llm = [
+    "requests>=2.28.0",
+]
+docs = [
+    "sphinx>=7.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/example/self-evolving-agent"
+Repository = "https://github.com/example/self-evolving-agent"
+Documentation = "https://github.com/example/self-evolving-agent#readme"
+"Bug Tracker" = "https://github.com/example/self-evolving-agent/issues"
+
+[project.scripts]
+self-evolving-agent = "cli:main"
+self-evolving-agent-api = "main:main"
+self-evolving-agent-run = "run_six_hours:main"
+
+# ============================================================
+# Setuptools 配置
+# ============================================================
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["self_evolving_agent*"]
+exclude = ["tests*", "examples*", "backup*", "run_logs*"]
+
+# ============================================================
+# Pytest 配置 (替代 pytest.ini)
+# ============================================================
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+# ============================================================
+# Ruff 配置 (lint + format)
+# ============================================================
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+exclude = [
+    ".git",
+    ".pytest_cache",
+    "build",
+    "dist",
+    "backup",
+    "run_logs",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (由formatter处理)
+    "B008",  # 函数调用作为默认参数(Flask常见)
+    "B904",  # raise from (兼容性)
+    "E741",  # 模糊变量名
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["self_evolving_agent"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+# ============================================================
+# Mypy 配置 (类型检查)
+# ============================================================
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+exclude = [
+    "backup/",
+    "run_logs/",
+    "tests/stress_logs/",
+]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "self_evolving_agent.core.optimizers"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "self_evolving_agent.core.data.*"
+ignore_errors = true

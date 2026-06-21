@@ -33,6 +33,7 @@ Thumbs.db
 *.log
 run_logs/
 nohup.out
+tests/stress_logs/
 
 # Environment
 .env
@@ -41,3 +42,13 @@ nohup.out
 # Temporary
 tmp_*
 *.tmp
+
+# Build artifacts (阶段144)
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Type checking cache (阶段145)
+.mypy_cache/
+.ruff_cache/

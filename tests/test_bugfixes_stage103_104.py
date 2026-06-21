@@ -20,7 +20,7 @@ from self_evolving_agent.core.free_will_first_principles import (
 )
 from self_evolving_agent.core.causal_first_principles import CausalFirstPrinciplesEngine
 from self_evolving_agent.core.drive_first_principles import DriveFirstPrinciplesEngine, DriveType
-from self_evolving_agent.core.predictive_coding_engine import PredictiveCodingEngine, Prediction, PredictionError, PrecisionWeight
+from self_evolving_agent.core.predictive_coding_engine import PredictiveCodingEngine, Prediction, PredictionError, PrecisionWeight, Correction
 from self_evolving_agent.core.memory_first_principles import MemoryFirstPrinciplesEngine, MemoryPriority, MemoryItem
 from self_evolving_agent.core.efficiency_first_principles import EfficiencyFirstPrinciplesEngine, ResourceType
 from self_evolving_agent.core.emotion_first_principles import EmotionFirstPrinciplesEngine, EmotionType
@@ -290,18 +290,21 @@ class TestDriveEngineSideEffectFix:
 # ============================================================
 
 class TestPredictiveCodingNoneFix:
-    """测试预测编码引擎 None 返回值防御"""
+    """测试预测编码引擎 None 返回值防御（阶段114增强：回退到多层预测/贝叶斯更新）"""
 
     def test_generate_prediction_none_return(self):
-        """predictor 返回 None 时应正常处理"""
+        """predictor 返回 None 时应回退到多层预测模型（阶段114增强）"""
         engine = PredictiveCodingEngine("test")
         # 注册一个返回 None 的 predictor
         engine.register_predictor("mod", lambda state: None)
         result = engine.generate_prediction("mod", {"v": 0.5})
-        assert result is None
+        # 阶段114：回退到多层预测模型，不再返回 None
+        assert result is not None
+        assert isinstance(result, Prediction)
+        assert result.source == "mod"
 
     def test_generate_correction_none_return(self):
-        """corrector 返回 None 时应正常处理"""
+        """corrector 返回 None 时应回退到贝叶斯更新（阶段114增强）"""
         engine = PredictiveCodingEngine("test")
         engine.register_corrector("mod", lambda error: None)
         # 需要先有 error 对象
@@ -311,7 +314,10 @@ class TestPredictiveCodingNoneFix:
             precision=PrecisionWeight.MEDIUM,
         )
         result = engine.generate_correction("mod", error)
-        assert result is None
+        # 阶段114：回退到贝叶斯更新，不再返回 None
+        assert result is not None
+        assert isinstance(result, Correction)
+        assert result.target_module == "mod"
 
 
 # ============================================================

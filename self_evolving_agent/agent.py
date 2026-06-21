@@ -2,11 +2,14 @@
 自驱永续进化Agent系统 — 主Agent（架构B统一入口）
 
 阶段96: 统一两套架构
+阶段149: 按领域拆分为Mixin，本文件保留核心生命周期和状态管理
+
 第一性原理：单一职责 + 依赖抽象
 - SelfEvolvingAgent 现在是 SystemCoordinator 的薄包装层
 - 不再直接依赖 modules/ 中的具体实现
 - 通过 SystemCoordinator 统一访问 15 个第一性原理引擎
 - 保留消息总线用于事件通知（向后兼容）
+- 领域方法通过14个Mixin提供（阶段149）
 """
 
 import threading
@@ -18,9 +21,67 @@ from .core.message_bus import LocalMessageBus
 from .core.config_manager import ConfigurationManager
 from .core.system_coordinator import SystemCoordinator, create_coordinator
 from .core.llm_service import LLMService, create_llm_service
+from .core.environment_interface import (
+    EnvironmentInterface,
+    EnvironmentManager,
+    SimulatedEnvironment,
+    EnvironmentAction,
+    create_environment_manager,
+)
+from .core.llm_reasoning_coordinator import (
+    LLMReasoningCoordinator,
+    ReasoningResult,
+    ReasoningMode,
+    TaskType,
+    create_reasoning_task,
+)
+from .core.persistence import (
+    StorageInterface,
+    PersistenceManager,
+    create_persistence_manager,
+)
+from .core.task_executor import (
+    TaskExecutor,
+    create_task_executor,
+)
+from .core.code_review import CodeReviewModule, create_code_reviewer
+from .core.doc_generator import DocumentationGenerator, create_doc_generator
+from .core.performance import PerformanceMonitor, create_performance_monitor
+from .core.distributed import DistributedCoordinator
+from .core.observability import ObservabilityManager, create_observability_manager
+from .core.production import ProductionManager
+from .core.plugin_system import EnhancedPluginManager, create_enhanced_plugin_manager
+from .core.config_hot_reload import HotReloadManager, create_hot_reload_manager
+from .core.security import SecurityManager, create_security_manager
+from .core.recovery import RecoveryManager, create_recovery_manager
+from .core.benchmark import BenchmarkRunner, create_benchmark_runner
+from .core.multi_tenant import TenantManager, create_tenant_manager
+
+# 阶段149：领域Mixin
+from .agent_mixins import (
+    EnvironmentMixin, PersistenceMixin, TaskMixin, CodeDocsMixin,
+    PerformanceMixin, DistributedMixin, ObservabilityMixin, ProductionMixin,
+    PluginsMixin, ConfigMixin, SecurityMixin, RecoveryMixin,
+    BenchmarkMixin, TenantsMixin,
+)
 
 
-class SelfEvolvingAgent:
+class SelfEvolvingAgent(
+    EnvironmentMixin,
+    PersistenceMixin,
+    TaskMixin,
+    CodeDocsMixin,
+    PerformanceMixin,
+    DistributedMixin,
+    ObservabilityMixin,
+    ProductionMixin,
+    PluginsMixin,
+    ConfigMixin,
+    SecurityMixin,
+    RecoveryMixin,
+    BenchmarkMixin,
+    TenantsMixin,
+):
     """
     自驱永续进化Agent（架构B统一入口）
 
@@ -33,6 +94,12 @@ class SelfEvolvingAgent:
     2. act(action)     -> 决策 + 行动
     3. reflect()       -> 元认知 + 反思
     4. run_cycle()     -> 完整整合周期
+
+    领域接口通过14个Mixin提供（阶段149）：
+    EnvironmentMixin, PersistenceMixin, TaskMixin, CodeDocsMixin,
+    PerformanceMixin, DistributedMixin, ObservabilityMixin, ProductionMixin,
+    PluginsMixin, ConfigMixin, SecurityMixin, RecoveryMixin,
+    BenchmarkMixin, TenantsMixin
     """
 
     def __init__(
@@ -60,6 +127,77 @@ class SelfEvolvingAgent:
         self._cycle_interval = 1.0  # 秒
         self._observers: List[Callable[[Dict[str, Any]], None]] = []
 
+        # 阶段124：环境管理器（默认使用模拟环境，向后兼容）
+        self._env_manager = EnvironmentManager(f"{agent_id}_env_manager")
+        self._env_manager.register_environment(
+            "simulated",
+            SimulatedEnvironment(f"{agent_id}_sim_env"),
+            is_default=True,
+        )
+
+        # 阶段125：LLM推理协调器
+        self._llm_coordinator = LLMReasoningCoordinator(
+            llm_service=llm_service,
+            engine=self._coordinator._engine,
+            coordinator=self._coordinator,
+        )
+
+        # 阶段126：持久化管理器（默认内存存储，可切换为JSON存储）
+        self._persistence = create_persistence_manager(
+            manager_id=f"{agent_id}_persistence",
+        )
+
+        # 阶段127：端到端任务执行器
+        self._task_executor = create_task_executor(
+            env_manager=self._env_manager,
+            llm_coordinator=self._llm_coordinator,
+            persistence=self._persistence,
+            coordinator=self._coordinator,
+            executor_id=f"{agent_id}_task_executor",
+        )
+
+        # 阶段128：代码审查模块
+        self._code_reviewer = create_code_reviewer(
+            llm_coordinator=self._llm_coordinator,
+        )
+
+        # 阶段129：文档生成模块
+        self._doc_generator = create_doc_generator(
+            llm_coordinator=self._llm_coordinator,
+        )
+
+        # 阶段130：性能监控器
+        self._perf_monitor = create_performance_monitor()
+
+        # 阶段131：分布式协调器（默认单节点模式）
+        self._dist_coordinator: Optional[DistributedCoordinator] = None
+
+        # 阶段132：可观测性管理器
+        self._observability = create_observability_manager(
+            service_name=f"agent_{agent_id}",
+        )
+
+        # 阶段133：生产管理器
+        self._production = ProductionManager()
+
+        # 阶段135：增强插件管理器
+        self._plugin_manager = create_enhanced_plugin_manager()
+
+        # 阶段138：配置热更新管理器
+        self._hot_reload = create_hot_reload_manager()
+
+        # 阶段139：安全管理器
+        self._security = create_security_manager()
+
+        # 阶段140：恢复管理器
+        self._recovery = create_recovery_manager()
+
+        # 阶段141：基准测试运行器
+        self._benchmark = create_benchmark_runner()
+
+        # 阶段142：多租户管理器
+        self._tenants = create_tenant_manager()
+
     # ============================================================
     # 属性访问（向后兼容）
     # ============================================================
@@ -71,15 +209,96 @@ class SelfEvolvingAgent:
 
     @property
     def engine(self):
-        """暴露底层统一引擎（向后兼容架构A的属性访问）"""
+        """暴露底层引擎"""
         return self._coordinator._engine
 
     @property
     def message_bus(self) -> Optional[LocalMessageBus]:
+        """消息总线"""
         return self._message_bus
 
+    @property
+    def env_manager(self) -> EnvironmentManager:
+        """环境管理器"""
+        return self._env_manager
+
+    @property
+    def llm_coordinator(self) -> LLMReasoningCoordinator:
+        """LLM推理协调器"""
+        return self._llm_coordinator
+
+    @property
+    def persistence(self) -> PersistenceManager:
+        """持久化管理器"""
+        return self._persistence
+
+    @property
+    def task_executor(self) -> TaskExecutor:
+        """任务执行器"""
+        return self._task_executor
+
+    @property
+    def code_reviewer(self) -> CodeReviewModule:
+        """代码审查模块"""
+        return self._code_reviewer
+
+    @property
+    def doc_generator(self) -> DocumentationGenerator:
+        """文档生成模块"""
+        return self._doc_generator
+
+    @property
+    def performance_monitor(self) -> PerformanceMonitor:
+        """性能监控器"""
+        return self._perf_monitor
+
+    @property
+    def distributed_coordinator(self) -> Optional[DistributedCoordinator]:
+        """分布式协调器"""
+        return self._dist_coordinator
+
+    @property
+    def observability(self) -> ObservabilityManager:
+        """可观测性管理器"""
+        return self._observability
+
+    @property
+    def production(self) -> ProductionManager:
+        """生产管理器"""
+        return self._production
+
+    @property
+    def plugin_manager(self) -> EnhancedPluginManager:
+        """插件管理器"""
+        return self._plugin_manager
+
+    @property
+    def hot_reload(self) -> HotReloadManager:
+        """配置热更新管理器"""
+        return self._hot_reload
+
+    @property
+    def security(self) -> SecurityManager:
+        """安全管理器"""
+        return self._security
+
+    @property
+    def recovery(self) -> RecoveryManager:
+        """恢复管理器"""
+        return self._recovery
+
+    @property
+    def benchmark(self) -> BenchmarkRunner:
+        """基准测试运行器"""
+        return self._benchmark
+
+    @property
+    def tenants(self) -> TenantManager:
+        """租户管理器"""
+        return self._tenants
+
     # ============================================================
-    # 初始化
+    # 初始化与消息订阅
     # ============================================================
 
     def initialize(self, config: Dict[str, Any]) -> None:
@@ -197,7 +416,11 @@ class SelfEvolvingAgent:
             time.sleep(self._cycle_interval)
 
     def _sense_environment(self) -> Dict[str, Any]:
-        """感知环境（模拟）"""
+        """感知环境（阶段124：通过环境管理器感知真实或模拟环境）"""
+        state = self._env_manager.observe()
+        if state is not None:
+            return state.to_dict()
+        # 回退到原始模拟逻辑（防御）
         import math
         import random
 
@@ -209,6 +432,35 @@ class SelfEvolvingAgent:
             "actual": {"value": base_value + random.gauss(0, 0.05)},
             "cycle": self._cycle_count,
         }
+
+    def reason(
+        self,
+        query: str,
+        task_type: TaskType = TaskType.GENERAL,
+        mode: ReasoningMode = ReasoningMode.HYBRID,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> ReasoningResult:
+        """
+        LLM-引擎协同推理（阶段125新增）
+
+        Args:
+            query: 自然语言查询
+            task_type: 任务类型
+            mode: 推理模式
+            context: 上下文
+        """
+        task = create_reasoning_task(
+            task_id=f"task_{self._cycle_count}_{int(time.time() * 1000)}",
+            query=query,
+            task_type=task_type,
+            context=context or {},
+            mode=mode,
+        )
+        return self._llm_coordinator.reason(task)
+
+    # ============================================================
+    # 状态管理
+    # ============================================================
 
     def _publish_state_update(self, state: Dict[str, Any]) -> None:
         """发布状态更新消息（向后兼容）"""
@@ -224,10 +476,6 @@ class SelfEvolvingAgent:
             self._message_bus.publish(message)
         except Exception:
             pass
-
-    # ============================================================
-    # 状态查询
-    # ============================================================
 
     def get_state(self) -> Dict[str, Any]:
         """获取Agent状态（统一架构A/B的字段）"""

@@ -195,36 +195,98 @@ class MemoryBackend(LogBackend):
 
 
 class JsonFileBackend(LogBackend):
-    """JSON文件日志后端"""
-    
-    def __init__(self, filepath: str, min_level: LogLevel = LogLevel.INFO):
+    """JSON文件日志后端（阶段179: 支持日志轮转）
+
+    第一性原理:
+    1. 日志是磁盘资源 — 必须有上限，避免撑满磁盘
+    2. 轮转是运维刚需 — 按大小自动切割，保留历史备份
+    3. 零依赖 — 不依赖 logging.handlers.RotatingFileHandler，自行实现
+    """
+
+    def __init__(
+        self,
+        filepath: str,
+        min_level: LogLevel = LogLevel.INFO,
+        max_bytes: int = 10 * 1024 * 1024,  # 阶段179: 默认10MB轮转
+        backup_count: int = 5,
+        enable_rotation: bool = True,
+    ):
         self.filepath = filepath
         self.min_level = min_level
+        self.max_bytes = max_bytes
+        self.backup_count = backup_count
+        self.enable_rotation = enable_rotation
         self._lock = threading.Lock()
         self._file: Optional[TextIO] = None
         self._open()
-    
+
     def _open(self) -> None:
+        # 确保目录存在
+        import os
+        dir_path = os.path.dirname(self.filepath)
+        if dir_path and not os.path.exists(dir_path):
+            os.makedirs(dir_path, exist_ok=True)
         self._file = open(self.filepath, "a", encoding="utf-8")
-    
+
+    def _should_rotate(self) -> bool:
+        """检查是否需要轮转"""
+        if not self.enable_rotation:
+            return False
+        try:
+            import os
+            current_size = os.path.getsize(self.filepath)
+            return current_size >= self.max_bytes
+        except OSError:
+            return False
+
+    def _rotate(self) -> None:
+        """执行日志轮转（阶段179）
+
+        将当前文件重命名为 .1，.1 重命名为 .2，依此类推，删除最旧的。
+        """
+        import os
+        # 关闭当前文件
+        if self._file:
+            self._file.close()
+            self._file = None
+        # 轮转备份文件：.4 -> 删除, .3 -> .4, .2 -> .3, .1 -> .2
+        for i in range(self.backup_count - 1, 0, -1):
+            src = f"{self.filepath}.{i}"
+            dst = f"{self.filepath}.{i + 1}"
+            if os.path.exists(src):
+                if os.path.exists(dst):
+                    os.remove(dst)
+                os.rename(src, dst)
+        # 当前文件 -> .1
+        if os.path.exists(self.filepath):
+            os.rename(self.filepath, f"{self.filepath}.1")
+        # 重新打开新文件
+        self._open()
+
     def write(self, record: LogRecord) -> None:
         if record.level.value < self.min_level.value:
             return
         with self._lock:
+            if self._file is None:
+                self._open()
+            # 阶段179: 写入前检查轮转，写入后flush确保磁盘大小准确
+            if self._should_rotate():
+                self._rotate()
             if self._file:
                 self._file.write(record.to_json() + "\n")
-    
+                self._file.flush()
+
     def flush(self) -> None:
         with self._lock:
             if self._file:
                 self._file.flush()
-    
+
     def close(self) -> None:
         with self._lock:
             if self._file:
                 self._file.close()
                 self._file = None
-    
+
     def is_enabled_for(self, level: LogLevel) -> bool:
         return level.value >= self.min_level.value
 
