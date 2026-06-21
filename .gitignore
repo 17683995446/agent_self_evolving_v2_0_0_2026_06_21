@@ -39,6 +39,12 @@ tests/stress_logs/
 .env
 .env.local
 
+# CLI runtime files
+.cli_history
+
+# Runtime logs directory (stage179: created if LOG_DIR not configured)
+logs/
+
 # Temporary
 tmp_*
 *.tmp
